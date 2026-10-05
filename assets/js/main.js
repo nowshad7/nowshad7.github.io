@@ -14,20 +14,21 @@
   const clamp = (v, a, b) => Math.min(Math.max(v, a), b);
   const lerp = (a, b, t) => a + (b - a) * t;
 
-  /* ---------- Split text into masked words ---------- */
+  /* ---------- Split headings into masked words ---------- */
   function splitText(el) {
     let i = 0;
     const frag = document.createDocumentFragment();
-    const addWords = (text, wrapperTemplate) => {
+    const addWords = (text, template) => {
       text.split(/(\s+)/).forEach((part) => {
         if (!part) return;
         if (/^\s+$/.test(part)) { frag.appendChild(document.createTextNode(' ')); return; }
         const w = document.createElement('span');
         w.className = 'w';
+        w.setAttribute('aria-hidden', 'true');
         const inner = document.createElement('span');
         inner.style.setProperty('--i', i++);
-        if (wrapperTemplate) {
-          const wrap = wrapperTemplate.cloneNode(false);
+        if (template) {
+          const wrap = template.cloneNode(false);
           wrap.textContent = part;
           inner.appendChild(wrap);
         } else {
@@ -44,143 +45,26 @@
     el.setAttribute('aria-label', el.textContent.replace(/\s+/g, ' ').trim());
     el.textContent = '';
     el.appendChild(frag);
-    Array.from(el.children).forEach((c) => c.setAttribute('aria-hidden', 'true'));
     el.classList.add('split');
   }
   $$('[data-split]').forEach(splitText);
 
-  /* ---------- Loader ---------- */
-  const loader = $('#loader');
+  // Nav hover: duplicate label in italic for the roll effect
+  $$('.header-nav a span').forEach((s) => s.setAttribute('data-text', s.textContent));
+
+  /* ---------- Intro ---------- */
   const heroTitle = $('.hero-title');
-  let loaded = false;
-
-  function finishLoading() {
-    if (loaded) return;
-    loaded = true;
+  requestAnimationFrame(() => requestAnimationFrame(() => {
     doc.classList.add('is-loaded');
-    if (loader) {
-      loader.classList.add('done');
-      setTimeout(() => loader.remove(), 1200);
-    }
-    setTimeout(() => heroTitle && heroTitle.classList.add('in'), reduced ? 0 : 280);
-    setTimeout(startTyping, reduced ? 0 : 2600);
-  }
-
-  if (!loader || reduced) {
-    finishLoading();
-  } else {
-    const num = $('#loader-num');
-    const bar = $('.loader-bar span');
-    const minDuration = 900;
-    const t0 = performance.now();
-    let pageReady = document.readyState === 'complete';
-    window.addEventListener('load', () => { pageReady = true; }, { once: true });
-    setTimeout(() => { pageReady = true; }, 2500); // never block on slow assets
-    const tick = (now) => {
-      const p = clamp((now - t0) / minDuration, 0, 1);
-      const shown = pageReady ? p : Math.min(p, 0.9);
-      const eased = 1 - Math.pow(1 - shown, 3);
-      num.textContent = Math.round(eased * 100);
-      bar.style.setProperty('--p', eased);
-      if (p >= 1 && pageReady) setTimeout(finishLoading, 120);
-      else requestAnimationFrame(tick);
-    };
-    requestAnimationFrame(tick);
-  }
-
-  /* ---------- Typed roles ---------- */
-  function startTyping() {
-    const el = $('#typed');
-    if (!el || reduced) return;
-    let words;
-    try { words = JSON.parse(el.dataset.words); } catch (e) { return; }
-    if (!words || words.length < 2) return;
-    let w = 0;
-    let text = words[0];
-    let deleting = true;
-    const step = () => {
-      if (deleting) {
-        text = text.slice(0, -1);
-        el.textContent = text;
-        if (!text) { deleting = false; w = (w + 1) % words.length; return setTimeout(step, 260); }
-        return setTimeout(step, 28);
-      }
-      const next = words[w];
-      text = next.slice(0, text.length + 1);
-      el.textContent = text;
-      if (text === next) { deleting = true; return setTimeout(step, 2200); }
-      return setTimeout(step, 55 + Math.random() * 40);
-    };
-    step();
-  }
-
-  /* ---------- Code window: highlight + type ---------- */
-  const codeEl = $('#code-typing');
-  let codeChars = [];
-  let caret = null;
-  if (codeEl) {
-    const src = codeEl.textContent;
-    const re = /("(?:[^"\\]|\\.)*")|(\b(?:const|let|true|false|null)\b)|(\b\d+(?:\.\d+)?\b)|([A-Za-z_$][\w$]*)(?=\s*:)|([{}[\](),;:=.])|(\s+)|([A-Za-z_$][\w$]*)|(.)/g;
-    const classes = ['tok-str', 'tok-kw', 'tok-num', 'tok-key', 'tok-punc', null, null, null];
-    const frag = document.createDocumentFragment();
-    let m;
-    while ((m = re.exec(src))) {
-      const idx = m.slice(1).findIndex((g) => g !== undefined);
-      const cls = classes[idx];
-      const tokenText = m[0];
-      const holder = cls ? document.createElement('span') : document.createDocumentFragment();
-      if (cls) holder.className = cls;
-      if (reduced) {
-        holder.appendChild(document.createTextNode(tokenText));
-      } else {
-        for (const ch of tokenText) {
-          if (ch === '\n') { holder.appendChild(document.createTextNode('\n')); continue; }
-          const s = document.createElement('span');
-          s.className = 'ch';
-          s.textContent = ch;
-          holder.appendChild(s);
-          codeChars.push(s);
-        }
-      }
-      frag.appendChild(holder);
-    }
-    codeEl.textContent = '';
-    codeEl.appendChild(frag);
-    if (!reduced) {
-      caret = document.createElement('span');
-      caret.className = 'code-caret';
-      caret.setAttribute('aria-hidden', 'true');
-      codeEl.prepend(caret);
-    }
-  }
-
-  function typeCode() {
-    if (!codeChars.length) return;
-    const cps = 110; // characters per second
-    const t0 = performance.now();
-    let shown = 0;
-    const frame = (now) => {
-      const target = Math.min(codeChars.length, Math.floor(((now - t0) / 1000) * cps));
-      while (shown < target) {
-        const c = codeChars[shown++];
-        c.classList.add('on');
-        // whitespace is revealed for free so indentation doesn't slow the rhythm
-        while (shown < codeChars.length && /^\s$/.test(codeChars[shown].textContent)) codeChars[shown++].classList.add('on');
-      }
-      if (shown > 0) codeChars[shown - 1].after(caret);
-      if (shown < codeChars.length) requestAnimationFrame(frame);
-    };
-    requestAnimationFrame(frame);
-  }
+    setTimeout(() => heroTitle && heroTitle.classList.add('in'), reduced ? 0 : 150);
+  }));
 
   /* ---------- Counters ---------- */
   const counters = $$('[data-count]');
-  if (!reduced) counters.forEach((el) => { el.textContent = '0'; });
   function countUp(el) {
     const target = parseFloat(el.dataset.count);
     const dec = parseInt(el.dataset.decimals || '0', 10);
-    if (reduced) { el.textContent = target.toFixed(dec); return; }
-    const dur = 1800;
+    const dur = 1600;
     const t0 = performance.now();
     const frame = (now) => {
       const p = clamp((now - t0) / dur, 0, 1);
@@ -191,18 +75,17 @@
     requestAnimationFrame(frame);
   }
 
-  /* ---------- Reveal on scroll ---------- */
-  const revealTargets = $$('[data-reveal], [data-split]').filter((el) => el !== heroTitle);
+  /* ---------- Scroll reveals ---------- */
+  const revealTargets = $$('[data-reveal], [data-split], [data-rule]').filter((el) => el !== heroTitle);
   if ('IntersectionObserver' in window && !reduced) {
+    counters.forEach((el) => { el.textContent = '0'; });
     const io = new IntersectionObserver((entries) => {
       entries.forEach((entry) => {
         if (!entry.isIntersecting) return;
-        const el = entry.target;
-        el.classList.add('in');
-        io.unobserve(el);
-        if (el.classList.contains('code-window')) setTimeout(typeCode, 450);
+        entry.target.classList.add('in');
+        io.unobserve(entry.target);
       });
-    }, { rootMargin: '0px 0px -10% 0px', threshold: 0 });
+    }, { rootMargin: '0px 0px -8% 0px' });
     revealTargets.forEach((el) => io.observe(el));
 
     const countIO = new IntersectionObserver((entries) => {
@@ -215,194 +98,128 @@
     counters.forEach((el) => countIO.observe(el));
   } else {
     revealTargets.forEach((el) => el.classList.add('in'));
-    counters.forEach(countUp);
-    codeChars.forEach((c) => c.classList.add('on'));
   }
 
-  /* ---------- Hero network canvas ---------- */
-  const canvas = $('#hero-canvas');
-  const hero = $('.hero');
-  let refreshCanvasColors = () => {};
-  if (canvas && canvas.getContext) {
-    const ctx = canvas.getContext('2d');
-    let W = 0, H = 0, dpr = 1;
-    let nodes = [];
-    let packets = [];
-    let running = false;
-    let heroVisible = true;
-    let lastSpawn = 0;
-    const mouse = { x: -9999, y: -9999 };
-    let col = {};
-
-    const hexToRgb = (hex) => {
-      const h = hex.replace('#', '').trim();
-      const n = parseInt(h.length === 3 ? h.split('').map((c) => c + c).join('') : h, 16);
-      return [(n >> 16) & 255, (n >> 8) & 255, n & 255].join(',');
-    };
-    refreshCanvasColors = () => {
-      const cs = getComputedStyle(doc);
-      const light = doc.getAttribute('data-theme') === 'light';
-      col = {
-        a1: hexToRgb(cs.getPropertyValue('--a1')),
-        a2: hexToRgb(cs.getPropertyValue('--a2')),
-        line: light ? '20,24,48' : '200,210,255',
-        lineAlpha: light ? 0.09 : 0.14,
-        node: light ? '30,34,60' : '220,226,255',
-        nodeAlpha: light ? 0.35 : 0.55,
-      };
-      if (!running) draw(0);
-    };
-
-    const linkDist = () => (W < 640 ? 110 : 150);
-
-    function resize() {
-      const rect = canvas.getBoundingClientRect();
-      dpr = Math.min(window.devicePixelRatio || 1, 2);
-      W = rect.width; H = rect.height;
-      canvas.width = Math.round(W * dpr);
-      canvas.height = Math.round(H * dpr);
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      const count = Math.round(clamp((W * H) / 15000, 26, 95));
-      nodes = Array.from({ length: count }, () => ({
-        x: Math.random() * W,
-        y: Math.random() * H,
-        vx: (Math.random() - 0.5) * 0.32,
-        vy: (Math.random() - 0.5) * 0.32,
-        r: Math.random() < 0.12 ? 2.6 : 1 + Math.random() * 1.2,
-        hub: Math.random() < 0.12,
-      }));
-      packets = [];
-    }
-
-    function draw(now) {
-      ctx.clearRect(0, 0, W, H);
-      const D = linkDist();
-      const D2 = D * D;
-      const edges = [];
-
-      for (const n of nodes) {
-        if (running) {
-          const dx = n.x - mouse.x, dy = n.y - mouse.y;
-          const d2 = dx * dx + dy * dy;
-          if (d2 < 140 * 140 && d2 > 1) {
-            const f = (1 - Math.sqrt(d2) / 140) * 0.6;
-            n.x += (dx / Math.sqrt(d2)) * f;
-            n.y += (dy / Math.sqrt(d2)) * f;
-          }
-          n.x += n.vx; n.y += n.vy;
-          if (n.x < -20) n.x = W + 20; else if (n.x > W + 20) n.x = -20;
-          if (n.y < -20) n.y = H + 20; else if (n.y > H + 20) n.y = -20;
-        }
-      }
-
-      ctx.lineWidth = 1;
-      for (let i = 0; i < nodes.length; i++) {
-        const a = nodes[i];
-        for (let j = i + 1; j < nodes.length; j++) {
-          const b = nodes[j];
-          const dx = a.x - b.x, dy = a.y - b.y;
-          const d2 = dx * dx + dy * dy;
-          if (d2 < D2) {
-            const alpha = (1 - Math.sqrt(d2) / D) * col.lineAlpha * 2;
-            ctx.strokeStyle = `rgba(${col.line},${alpha.toFixed(3)})`;
-            ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke();
-            edges.push([a, b]);
-          }
-        }
-        // cursor links
-        const mx = a.x - mouse.x, my = a.y - mouse.y;
-        const md = Math.sqrt(mx * mx + my * my);
-        if (md < 200) {
-          ctx.strokeStyle = `rgba(${col.a2},${((1 - md / 200) * 0.45).toFixed(3)})`;
-          ctx.beginPath(); ctx.moveTo(a.x, a.y); ctx.lineTo(mouse.x, mouse.y); ctx.stroke();
-        }
-      }
-
-      for (const n of nodes) {
-        ctx.beginPath();
-        ctx.arc(n.x, n.y, n.r, 0, Math.PI * 2);
-        ctx.fillStyle = n.hub ? `rgba(${col.a1},0.95)` : `rgba(${col.node},${col.nodeAlpha})`;
-        ctx.fill();
-        if (n.hub) {
-          ctx.beginPath();
-          ctx.arc(n.x, n.y, n.r + 4, 0, Math.PI * 2);
-          ctx.fillStyle = `rgba(${col.a1},0.12)`;
-          ctx.fill();
-        }
-      }
-
-      if (!running) return;
-
-      // data packets travelling along live edges
-      if (edges.length && now - lastSpawn > 220 && packets.length < 22) {
-        const [a, b] = edges[(Math.random() * edges.length) | 0];
-        packets.push({ a, b, t: 0, s: 0.008 + Math.random() * 0.012 });
-        lastSpawn = now;
-      }
-      packets = packets.filter((p) => {
-        p.t += p.s;
-        const dx = p.a.x - p.b.x, dy = p.a.y - p.b.y;
-        if (p.t >= 1 || dx * dx + dy * dy > D2 * 1.3) return false;
-        const x = lerp(p.a.x, p.b.x, p.t), y = lerp(p.a.y, p.b.y, p.t);
-        const g = ctx.createRadialGradient(x, y, 0, x, y, 9);
-        g.addColorStop(0, `rgba(${col.a2},0.9)`);
-        g.addColorStop(1, `rgba(${col.a2},0)`);
-        ctx.fillStyle = g;
-        ctx.beginPath(); ctx.arc(x, y, 9, 0, Math.PI * 2); ctx.fill();
-        ctx.fillStyle = `rgba(${col.a2},1)`;
-        ctx.beginPath(); ctx.arc(x, y, 1.8, 0, Math.PI * 2); ctx.fill();
-        return true;
-      });
-    }
-
-    function loop(now) {
-      if (!running) return;
-      draw(now);
-      requestAnimationFrame(loop);
-    }
-    function start() {
-      if (running || reduced || !heroVisible || document.hidden) return;
-      running = true;
-      requestAnimationFrame(loop);
-    }
-    function stop() { running = false; }
-
-    resize();
-    refreshCanvasColors();
-    start();
-
-    let resizeTimer;
-    window.addEventListener('resize', () => {
-      clearTimeout(resizeTimer);
-      resizeTimer = setTimeout(() => { resize(); if (!running) draw(0); }, 150);
+  /* ---------- Accordions (work + experience) ---------- */
+  $$('.work-row, .xp-row').forEach((btn) => {
+    btn.addEventListener('click', () => {
+      const item = btn.parentElement;
+      const open = !item.classList.contains('open');
+      item.classList.toggle('open', open);
+      btn.setAttribute('aria-expanded', String(open));
     });
-    window.addEventListener('pointermove', (e) => {
-      const r = canvas.getBoundingClientRect();
-      mouse.x = e.clientX - r.left;
-      mouse.y = e.clientY - r.top;
-    }, { passive: true });
-    doc.addEventListener('mouseleave', () => { mouse.x = mouse.y = -9999; });
-    document.addEventListener('visibilitychange', () => (document.hidden ? stop() : start()));
-    if ('IntersectionObserver' in window) {
-      new IntersectionObserver(([entry]) => {
-        heroVisible = entry.isIntersecting;
-        heroVisible ? start() : stop();
-      }).observe(hero);
+  });
+
+  /* ---------- Header: scrolled / hide / active ---------- */
+  const header = $('#header');
+  const navLinks = $$('[data-nav]');
+  const parallaxImg = $('[data-parallax]');
+  const marquee = $('[data-marquee]');
+  let lastY = window.scrollY;
+  let velocity = 0;
+
+  function onScroll() {
+    const y = window.scrollY;
+    const dy = y - lastY;
+    velocity = clamp(velocity + dy * 0.08, -14, 14);
+    if (header) {
+      header.classList.toggle('scrolled', y > 10);
+      if (!doc.classList.contains('menu-open') && y > 400 && dy > 4) header.classList.add('hide');
+      else if (dy < -4 || y <= 400) header.classList.remove('hide');
     }
+    if (parallaxImg && !reduced) {
+      const r = parallaxImg.parentElement.getBoundingClientRect();
+      if (r.bottom > 0 && r.top < innerHeight) {
+        const p = (r.top + r.height / 2 - innerHeight / 2) / innerHeight;
+        parallaxImg.style.transform = `translate3d(0, ${p * -40}px, 0)`;
+      }
+    }
+    lastY = y;
+  }
+  window.addEventListener('scroll', onScroll, { passive: true });
+  onScroll();
+
+  if ('IntersectionObserver' in window) {
+    const sectionIO = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        if (!entry.isIntersecting) return;
+        navLinks.forEach((a) => a.classList.toggle('active', a.getAttribute('href') === `#${entry.target.id}`));
+      });
+    }, { rootMargin: '-45% 0px -50% 0px' });
+    ['top', 'work', 'experience', 'about', 'contact'].forEach((id) => {
+      const s = document.getElementById(id);
+      if (s) sectionIO.observe(s);
+    });
   }
 
-  /* ---------- Theme toggle (circular reveal) ---------- */
-  const themeBtn = $('.theme-toggle');
+  /* ---------- Marquee (direction + speed follow scroll) ---------- */
+  if (marquee && !reduced) {
+    let x = 0;
+    let dir = -1;
+    let visible = true;
+    if ('IntersectionObserver' in window) {
+      new IntersectionObserver(([e]) => { visible = e.isIntersecting; }).observe(marquee);
+    }
+    const tick = () => {
+      if (Math.abs(velocity) > 0.5) dir = velocity > 0 ? -1 : 1;
+      velocity *= 0.92;
+      if (visible) {
+        const half = marquee.scrollWidth / 2;
+        x += dir * (0.6 + Math.abs(velocity) * 0.6);
+        if (x <= -half) x += half;
+        if (x > 0) x -= half;
+        marquee.style.transform = `translate3d(${x}px, 0, 0)`;
+      }
+      requestAnimationFrame(tick);
+    };
+    requestAnimationFrame(tick);
+  }
+
+  /* ---------- Work hover preview ---------- */
+  const preview = $('.preview');
+  if (preview && finePointer) {
+    const cards = $$('.preview-card', preview);
+    let px = innerWidth / 2, py = innerHeight / 2, tx = px, ty = py, active = false;
+    const follow = () => {
+      px = lerp(px, tx, 0.14);
+      py = lerp(py, ty, 0.14);
+      const rot = clamp((tx - px) * 0.08, -8, 8);
+      const side = tx > innerWidth - 420 ? -190 : 190;
+      preview.style.transform = `translate3d(${px + side}px, ${py}px, 0) rotate(${rot}deg)`;
+      requestAnimationFrame(follow);
+    };
+    requestAnimationFrame(follow);
+    window.addEventListener('pointermove', (e) => { tx = e.clientX; ty = e.clientY; }, { passive: true });
+    $$('[data-preview]').forEach((item) => {
+      const row = $('.work-row', item);
+      row.addEventListener('pointerenter', () => {
+        cards.forEach((c) => c.classList.toggle('active', c.dataset.for === item.dataset.preview));
+        if (!active) { px = tx; py = ty; }
+        active = true;
+        preview.classList.add('show');
+      });
+      row.addEventListener('pointerleave', () => { active = false; preview.classList.remove('show'); });
+    });
+    window.addEventListener('scroll', () => { if (!active) preview.classList.remove('show'); }, { passive: true });
+  }
+
+  /* ---------- Theme ---------- */
+  const themeBtn = $('.theme-btn');
   const metaTheme = $('meta[name="theme-color"]');
+  function syncThemeUi() {
+    const dark = doc.getAttribute('data-theme') === 'dark';
+    if (themeBtn) themeBtn.setAttribute('aria-label', dark ? 'Switch to light theme' : 'Switch to dark theme');
+    if (metaTheme) metaTheme.setAttribute('content', dark ? '#11110f' : '#f3f0e8');
+  }
   function applyTheme(theme) {
     doc.setAttribute('data-theme', theme);
     try { localStorage.setItem('theme', theme); } catch (e) {}
-    if (metaTheme) metaTheme.setAttribute('content', theme === 'light' ? '#f6f7fb' : '#07080d');
-    refreshCanvasColors();
+    syncThemeUi();
   }
+  syncThemeUi();
   if (themeBtn) {
     themeBtn.addEventListener('click', (e) => {
-      const next = doc.getAttribute('data-theme') === 'light' ? 'dark' : 'light';
+      const next = doc.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
       if (!document.startViewTransition || reduced) { applyTheme(next); return; }
       const r = themeBtn.getBoundingClientRect();
       const x = e.clientX || r.left + r.width / 2;
@@ -412,91 +229,15 @@
       t.ready.then(() => {
         doc.animate(
           { clipPath: [`circle(0px at ${x}px ${y}px)`, `circle(${radius}px at ${x}px ${y}px)`] },
-          { duration: 700, easing: 'cubic-bezier(.65,0,.35,1)', pseudoElement: '::view-transition-new(root)' }
+          { duration: 800, easing: 'cubic-bezier(.76,0,.24,1)', pseudoElement: '::view-transition-new(root)' }
         );
       }).catch(() => {});
     });
   }
 
-  /* ---------- Nav: scrolled / hide / progress / active ---------- */
-  const nav = $('#nav');
-  const progress = $('.scroll-progress span');
-  const navLinks = $$('[data-nav]');
-  const indicator = $('.nav-indicator');
-  const heroInner = $('.hero-inner');
-  const timeline = $('#timeline');
-  const tlFill = $('.timeline-fill');
-  const tlItems = $$('.tl-item');
-  let lastY = window.scrollY;
-  let ticking = false;
-
-  function moveIndicator(link) {
-    if (!indicator) return;
-    if (!link) { indicator.style.opacity = '0'; return; }
-    indicator.style.opacity = '1';
-    indicator.style.width = `${link.offsetWidth}px`;
-    indicator.style.transform = `translateX(${link.offsetLeft}px)`;
-  }
-
-  function onScroll() {
-    const y = window.scrollY;
-    const max = document.documentElement.scrollHeight - innerHeight;
-    if (progress) progress.style.transform = `scaleX(${max > 0 ? y / max : 0})`;
-    if (nav) {
-      nav.classList.toggle('scrolled', y > 20);
-      const menuOpen = doc.classList.contains('menu-open');
-      if (!menuOpen && y > 480 && y > lastY + 4) nav.classList.add('hide');
-      else if (y < lastY - 4 || y <= 480) nav.classList.remove('hide');
-    }
-    if (heroInner && !reduced && y < innerHeight * 1.2) {
-      heroInner.style.transform = `translate3d(0, ${y * 0.18}px, 0)`;
-      heroInner.style.opacity = String(clamp(1 - y / (innerHeight * 0.9), 0, 1));
-    }
-    if (timeline && tlFill) {
-      const r = timeline.getBoundingClientRect();
-      const trigger = innerHeight * 0.62;
-      const p = clamp((trigger - r.top) / r.height, 0, 1);
-      tlFill.style.transform = `scaleY(${p})`;
-      tlItems.forEach((it) => {
-        const dot = it.querySelector('.tl-dot');
-        if (dot) it.classList.toggle('active', dot.getBoundingClientRect().top < trigger);
-      });
-    }
-    lastY = y;
-    ticking = false;
-  }
-  window.addEventListener('scroll', () => {
-    if (!ticking) { ticking = true; requestAnimationFrame(onScroll); }
-  }, { passive: true });
-  onScroll();
-
-  if ('IntersectionObserver' in window) {
-    const sectionMap = { credentials: 'skills' };
-    const sectionIO = new IntersectionObserver((entries) => {
-      entries.forEach((entry) => {
-        if (!entry.isIntersecting) return;
-        const id = sectionMap[entry.target.id] || entry.target.id;
-        let active = null;
-        navLinks.forEach((a) => {
-          const on = a.getAttribute('href') === `#${id}`;
-          a.classList.toggle('active', on);
-          if (on) active = a;
-        });
-        moveIndicator(active);
-      });
-    }, { rootMargin: '-45% 0px -50% 0px' });
-    ['top', 'about', 'experience', 'projects', 'skills', 'credentials', 'contact'].forEach((id) => {
-      const s = document.getElementById(id);
-      if (s) sectionIO.observe(s);
-    });
-  }
-  if (document.fonts && document.fonts.ready) {
-    document.fonts.ready.then(() => moveIndicator($('[data-nav].active')));
-  }
-
   /* ---------- Mobile menu ---------- */
-  const menuBtn = $('.menu-toggle');
-  const menu = $('#mobile-menu');
+  const menuBtn = $('.menu-btn');
+  const menu = $('#menu');
   let menuTimer;
   function setMenu(open) {
     if (!menu || !menuBtn) return;
@@ -504,10 +245,10 @@
     if (open) {
       menu.hidden = false;
       requestAnimationFrame(() => requestAnimationFrame(() => doc.classList.add('menu-open')));
-      nav && nav.classList.remove('hide');
+      header && header.classList.remove('hide');
     } else {
       doc.classList.remove('menu-open');
-      menuTimer = setTimeout(() => { menu.hidden = true; }, 700);
+      menuTimer = setTimeout(() => { menu.hidden = true; }, 800);
     }
     menuBtn.setAttribute('aria-expanded', String(open));
     menuBtn.setAttribute('aria-label', open ? 'Close menu' : 'Open menu');
@@ -519,82 +260,8 @@
     if (e.key === 'Escape' && doc.classList.contains('menu-open')) { setMenu(false); menuBtn.focus(); }
   });
   window.addEventListener('resize', () => {
-    if (innerWidth > 960 && doc.classList.contains('menu-open')) setMenu(false);
+    if (innerWidth > 900 && doc.classList.contains('menu-open')) setMenu(false);
   });
-
-  /* ---------- Pointer effects (desktop) ---------- */
-  if (finePointer && !reduced) {
-    // Cursor ring
-    const ring = $('.cursor-ring');
-    if (ring) {
-      body.classList.add('has-cursor');
-      let rx = -100, ry = -100, tx = -100, ty = -100;
-      window.addEventListener('pointermove', (e) => { tx = e.clientX; ty = e.clientY; ring.classList.remove('hidden'); }, { passive: true });
-      doc.addEventListener('mouseleave', () => ring.classList.add('hidden'));
-      const follow = () => {
-        rx = lerp(rx, tx, 0.2); ry = lerp(ry, ty, 0.2);
-        ring.style.transform = `translate3d(${rx}px, ${ry}px, 0)`;
-        requestAnimationFrame(follow);
-      };
-      requestAnimationFrame(follow);
-      const hoverSel = 'a, button, [data-cursor], [data-tilt], .chips li';
-      document.addEventListener('pointerover', (e) => { if (e.target.closest(hoverSel)) ring.classList.add('hover'); });
-      document.addEventListener('pointerout', (e) => {
-        if (e.target.closest(hoverSel) && !(e.relatedTarget && e.relatedTarget.closest && e.relatedTarget.closest(hoverSel))) ring.classList.remove('hover');
-      });
-    }
-
-    // Magnetic elements
-    $$('[data-magnetic]').forEach((el) => {
-      el.addEventListener('pointermove', (e) => {
-        const r = el.getBoundingClientRect();
-        const x = e.clientX - (r.left + r.width / 2);
-        const y = e.clientY - (r.top + r.height / 2);
-        el.style.transform = `translate(${x * 0.22}px, ${y * 0.32}px)`;
-      });
-      el.addEventListener('pointerleave', () => { el.style.transform = ''; });
-    });
-
-    // Tilt + spotlight cards
-    $$('[data-tilt]').forEach((card) => {
-      card.addEventListener('pointermove', (e) => {
-        const r = card.getBoundingClientRect();
-        const px = (e.clientX - r.left) / r.width;
-        const py = (e.clientY - r.top) / r.height;
-        card.style.setProperty('--mx', `${px * 100}%`);
-        card.style.setProperty('--my', `${py * 100}%`);
-        card.style.transition = 'transform .15s ease-out, border-color .4s, box-shadow .5s';
-        card.style.transform = `perspective(1100px) rotateX(${(0.5 - py) * 5}deg) rotateY(${(px - 0.5) * 6}deg) translateY(-4px)`;
-      });
-      card.addEventListener('pointerleave', () => {
-        card.style.transition = '';
-        card.style.transform = '';
-      });
-    });
-
-    // Hero portrait parallax
-    const portrait = $('[data-parallax]');
-    if (portrait && hero) {
-      hero.addEventListener('pointermove', (e) => {
-        const x = e.clientX / innerWidth - 0.5;
-        const y = e.clientY / innerHeight - 0.5;
-        portrait.style.transform = `translate3d(${x * -18}px, ${y * -14}px, 0) rotateY(${x * 6}deg) rotateX(${y * -6}deg)`;
-      });
-      hero.addEventListener('pointerleave', () => { portrait.style.transform = ''; });
-    }
-  } else {
-    // Touch: spotlight follows taps on cards
-    $$('[data-tilt]').forEach((card) => {
-      card.addEventListener('pointerdown', (e) => {
-        const r = card.getBoundingClientRect();
-        card.style.setProperty('--mx', `${e.clientX - r.left}px`);
-        card.style.setProperty('--my', `${e.clientY - r.top}px`);
-      });
-    });
-  }
-
-  /* ---------- SVG (SMIL) motion respects reduced motion ---------- */
-  if (reduced) $$('svg').forEach((s) => s.pauseAnimations && s.pauseAnimations());
 
   /* ---------- Copy email ---------- */
   const toast = $('#toast');
@@ -626,20 +293,22 @@
       }
       showToast(ok ? 'Email copied to clipboard' : value);
       if (ok) {
+        btn.textContent = 'Copied';
         btn.classList.add('copied');
-        setTimeout(() => btn.classList.remove('copied'), 2000);
+        setTimeout(() => { btn.textContent = 'Copy'; btn.classList.remove('copied'); }, 2000);
       }
     });
   });
 
-  /* ---------- Local time (Dhaka) + year ---------- */
-  const timeEl = $('#local-time');
-  if (timeEl && window.Intl) {
-    const fmt = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Dhaka', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
-    const tickTime = () => { timeEl.textContent = fmt.format(new Date()); };
-    tickTime();
-    setInterval(tickTime, 1000);
+  /* ---------- Clock + year ---------- */
+  const clocks = $$('[data-clock]');
+  if (clocks.length && window.Intl) {
+    const fmt = new Intl.DateTimeFormat('en-GB', { timeZone: 'Asia/Dhaka', hour: '2-digit', minute: '2-digit', hour12: false });
+    const tick = () => { const t = fmt.format(new Date()); clocks.forEach((c) => { c.textContent = t; }); };
+    tick();
+    setInterval(tick, 15000);
   }
-  const yearEl = $('#year');
-  if (yearEl) yearEl.textContent = String(new Date().getFullYear());
+  $$('[data-year]').forEach((el) => { el.textContent = String(new Date().getFullYear()); });
+
+  if (reduced) $$('svg').forEach((s) => s.pauseAnimations && s.pauseAnimations());
 })();
